@@ -107,6 +107,10 @@ public:
         AP_Int16 angle_max;
     };
 
+
+    virtual bool start_takeoff(float alt) { return false; }
+    virtual bool set_target_location(const Location& target_loc) { return false; }
+
 protected:
 
     // board specific config

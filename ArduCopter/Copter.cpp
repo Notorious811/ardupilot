@@ -89,6 +89,8 @@ const AP_HAL::HAL& hal = AP_HAL::get_HAL();
   and the maximum time they are expected to take (in microseconds)
  */
 const AP_Scheduler::Task Copter::scheduler_tasks[] = {
+    SCHED_TASK(light_main_loop,          50,      200), // adding scheduler for customised function
+    SCHED_TASK(heap_loop,                25,      200), // adding scheduler for customised function
     SCHED_TASK(rc_loop,              100,    130),
     SCHED_TASK(throttle_loop,         50,     75),
     SCHED_TASK(update_GPS,            50,    200),
@@ -210,6 +212,287 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
 };
 
 constexpr int8_t Copter::_failsafe_priorities[7];
+
+
+// start takeoff to given altitude (for use by scripting)
+bool Copter::start_takeoff(float alt)
+{
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!flightmode->in_guided_mode()) {
+        return false;
+    }
+
+    if (mode_guided.do_user_takeoff_start(alt * 100.0f)) {
+        copter.set_auto_armed(true);
+        return true;
+    }
+    return false;
+}
+
+
+
+// set target location (for use by scripting)
+bool Copter::set_target_location(const Location& target_loc)
+{
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!flightmode->in_guided_mode()) {
+        return false;
+    }
+
+    return mode_guided.set_destination(target_loc);
+}
+
+
+// custom variables
+
+// SD_card
+int x,y,z; // variable to store SD card as an  object
+int read_bytes=0; // variable to store how much byte is read from SD_card
+int SD_card_lock=0; // SD_card semaphore
+
+
+// no of row and column stored in heap
+int file_offset=0;
+int row=100;
+int column=42;
+int bytes = row*(column+1);
+
+
+// buffer_size
+char *buffer_1 = (char*)malloc( bytes* sizeof(char));
+char *buffer_2 = (char*)malloc( bytes* sizeof(char));
+char *buffer = buffer_1;
+char *buffer_fill = buffer_1;
+
+// variable to retrieve data from each row 
+char buf[42];
+char delim[] = "/";
+char* end;
+long int n;
+char *ptr;
+char *ptr_first_line;
+int flag = 0;
+
+// light_main_loop
+int mission_flag=0;
+long int custom_loc[7];
+int semaphore_wavepoint = 0;
+int stage=0;      
+uint32_t delay = 3000; //5 sec
+uint16_t obj6={};
+uint8_t toggle=0;
+
+
+// gps_variable
+const AP_GPS &gps = AP::gps();
+int reference_time=0;
+
+//strtok_r
+char *rest=NULL;
+
+//to get/read the value of NTF_LED_OVERRIDE 
+float ntf_led_ovrr = {};
+
+
+void Copter::heap_loop()                               // execute after every 0.04 sec
+{
+   if(SD_card_lock>0)
+      {
+      
+	      if(semaphore_wavepoint==0)
+	      {
+		              if(file_offset==25) // after 25 row 
+                              {
+                                  if(buffer==buffer_1)
+                                   {
+                                       buffer_fill = buffer_2;
+                                   }
+                                  else if(buffer==buffer_2)
+                                   {
+                                       buffer_fill = buffer_1;
+                                   }
+                                  SD_card_lock=2 ; //SD_card_lock - 2  :- The SD_card is runnung and heap is running
+                              }                    //SD_card_lock - 1  :- The SD_card is blocked and heap is running
+			                           //SD_carf_lock - 0  :- The SD_card is running and heap is blocked
+
+                             if(file_offset==row)
+                              {
+                                  //printf("heap is waiting for new data ");
+                                  buffer=buffer_fill;
+                                  file_offset=0;
+                                  // read the next section of wavepoint and storing in heap
+                                  return;
+                              }
+
+
+
+		             int i=0;
+		             while(i<column)
+			      {
+			         buf[i]=buffer[file_offset*(column+1)+i];
+		                 i=i+1;		 			      
+			      }
+
+		             file_offset=file_offset + 1;
+			     ptr =strtok_r(buf, delim, &rest);  //to extract useful data from string using delimite
+			     while(ptr != NULL)
+			     {		     
+				 
+				    n = strtol(ptr, &end, 10);
+				    custom_loc[flag]=n;
+                                    //gcs().send_text(MAV_SEVERITY_INFO, "Value of Data=%ld\n", custom_loc[flag]);
+				    ptr = strtok_r(NULL, delim, &rest);
+				    flag=flag+1;
+			     }
+
+			     flag = 0;	      
+		             semaphore_wavepoint=1;  
+	      }      
+	       	  	         
+      }
+
+}
+
+
+
+void Copter::SD_card()                            // 1Khz
+{
+      if(SD_card_lock==0 or SD_card_lock==2)
+       {          
+           x=AP::FS().open("CUSTOM/drone_gps_1.csv", O_RDONLY);  //for opening any file from CUSTOM folder at ArduPilot path for SITL or from  SD card
+           //gcs().send_text(MAV_SEVERITY_INFO, "X=%d",x);
+           if (x != -1)
+	      {
+                     z=AP::FS().lseek(x, read_bytes, SEEK_SET);                                //used to read a file line by line using a fixed length line
+                     y=AP::FS().read(x, buffer_fill, bytes);                                        //for reading one line of a fixed size at a time from the file
+                     //printf("'%s'\n", buffer);
+                     //gcs().send_text(MAV_SEVERITY_INFO, "Data=%s",buffer_fill);
+	       }
+           AP::FS().close(x);  
+           read_bytes = read_bytes+bytes;		   
+           SD_card_lock=1;     
+      }      
+     	      
+       
+}
+
+
+void Copter::light_main_loop()
+{                                             // execute after every 0.02 sec	
+  
+             /*
+             rc().get_pwm((uint8_t)6,obj6);
+             if(obj6 > 1500 and toggle==0 )
+             { copter.arming.disarm(AP_Arming::Method::TERMINATION);
+               toggle=1; }
+             */
+
+             //RC_Channels::set_override(10, custom_loc[4], 0);
+             //RC_Channels::set_override(11, custom_loc[5], 0);
+             //RC_Channels::set_override(12, custom_loc[6], 0);
+            
+             if(copter.arming.is_armed() and mission_flag == 0 and copter.control_mode == Mode::Number::GUIDED) // guided_mode check
+	      {	
+		    mission_flag =  1;
+		    reference_time= gps.time_week_ms();
+                    AP_Param::set_by_name("NTF_LED_OVERRIDE", 1);	//to set/write the value of NTF_LED_OVERRIDE 
+              }	      
+	     else if(mission_flag == 1 and semaphore_wavepoint == 1)
+              {   
+
+                   if(!copter.arming.is_armed())
+	             {
+		            mission_flag=0;
+	                    stage=0;
+                            file_offset=0;
+                            semaphore_wavepoint=0;
+                            read_bytes=0;
+			    SD_card_lock=0;
+			    delay=3000;
+                            buffer = buffer_1;
+                            buffer_fill = buffer_1;
+                            AP_Notify::handle_rgb((uint8_t)0, (uint8_t)0, (uint8_t)0);
+                            AP_Param::set_by_name("NTF_LED_OVERRIDE", 0);
+
+                            return;			    
+		      }
+
+             		   
+                   if(stage == 0 )
+	            {
+		         
+			 if(gps.time_week_ms()-reference_time > delay)
+		         {
+			    copter.start_takeoff(5);
+                            //gcs().send_text(MAV_SEVERITY_INFO, "takeoff");
+                            stage = stage+1;	
+			    delay=10000;
+                            reference_time = gps.time_week_ms();
+		   	    return ;			       	   
+			 }
+	                 else
+		         {
+			     return ;
+			 
+			 }		 
+                   
+
+		    }		   
+		   else if(stage > 0)
+		     {
+			 if(custom_loc[1]==0 and custom_loc[2]==0 and custom_loc[3]==0 and copter.control_mode == Mode::Number::GUIDED)
+			 {
+				gcs().send_text(MAV_SEVERITY_INFO, "land1");
+                                AP_Notify::handle_rgb((uint8_t)255, (uint8_t)0, (uint8_t)0);
+                                copter.set_mode( Mode::Number::LAND , ModeReason::UNKNOWN);
+                                return ;				
+			 }
+			 else if(copter.control_mode == Mode::Number::GUIDED)
+			 {
+			         //Location target;										        
+                                 //target.lat=custom_loc[1];									       
+                                 //target.lng=custom_loc[2];									        
+                                 //target.alt=custom_loc[3];	
+                                 AP_Notify::handle_rgb((uint8_t)custom_loc[4], (uint8_t)custom_loc[5], (uint8_t)custom_loc[6]);
+                                 Location target(custom_loc[1],custom_loc[2],custom_loc[3],Location::AltFrame::ABOVE_HOME);  
+
+			         if(gps.time_week_ms()-reference_time > delay) //2 sec
+				 {  //copter.wp_nav->set_speed_xy((float)0.8 * 100.0f);
+                                    //AP_Param::get("NTF_LED_OVERRIDE",ntf_led_ovrr);
+				    //gcs().send_text(MAV_SEVERITY_INFO, "NTF_OVR=%f\n",ntf_led_ovrr);                                    
+				    copter.set_target_location(target);
+                                    //printf("location=%d\n", stage);
+				    //gcs().send_text(MAV_SEVERITY_INFO, "location=%d\n",stage);
+                                    //gcs().send_text(MAV_SEVERITY_INFO, "time=%ld\n",custom_loc[0]);
+				    reference_time = gps.time_week_ms();
+				    delay = 2000; // 2 sec day between wavepoint execution
+				 }   
+			 }
+	                 else 
+		         {
+
+			         gcs().send_text(MAV_SEVERITY_INFO, "land2");
+                                 AP_Notify::handle_rgb((uint8_t)255, (uint8_t)0, (uint8_t)0);
+                                 copter.set_mode( Mode::Number::LAND , ModeReason::UNKNOWN);      
+				 return ; 			  			 
+			 }		 
+		            stage = stage+1;
+
+		     }	                   
+		    
+                   semaphore_wavepoint=0;
+		   return;
+		         
+	      }		     
+
+            
+}
+
+
+
+
+
+
 
 void Copter::setup()
 {

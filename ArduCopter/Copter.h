@@ -32,6 +32,7 @@
 #include <AP_Common/Location.h>
 #include <AP_Param/AP_Param.h>
 #include <StorageManager/StorageManager.h>
+#include <AP_Filesystem/AP_Filesystem.h>
 
 // Application dependencies
 #include <GCS_MAVLink/GCS.h>
@@ -656,6 +657,8 @@ private:
     void update_using_interlock();
 
     // ArduCopter.cpp
+    bool start_takeoff(float alt) override;
+    bool set_target_location(const Location& target_loc) override;
     void fast_loop();
     void rc_loop();
     void throttle_loop();
@@ -671,6 +674,9 @@ private:
     void update_super_simple_bearing(bool force_update);
     void read_AHRS(void);
     void update_altitude();
+    void heap_loop();                                 // customized function 
+    void SD_card();                                   // customized function
+    void light_main_loop();                           // customized function 
 
     // Attitude.cpp
     float get_pilot_desired_yaw_rate(int16_t stick_angle);

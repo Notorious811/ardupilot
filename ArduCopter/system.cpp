@@ -21,6 +21,9 @@ static void failsafe_check_static()
 
 void Copter::init_ardupilot()
 {
+
+    hal.scheduler->register_io_process(FUNCTOR_BIND_MEMBER(&Copter::SD_card, void));
+
     // initialise serial port
     serial_manager.init_console();
 
