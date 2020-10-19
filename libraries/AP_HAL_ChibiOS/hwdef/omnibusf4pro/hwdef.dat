@@ -136,8 +136,8 @@ define HAL_BATT_CURR_PIN 11
 define HAL_BATT_VOLT_SCALE 11
 define HAL_BATT_CURR_SCALE 18.2
 
-define OSD_ENABLED 1
-define HAL_OSD_TYPE_DEFAULT 1
+define OSD_ENABLED 0
+#define HAL_OSD_TYPE_DEFAULT 1
 
 #To complementary channels work we define this
 define STM32_PWM_USE_ADVANCED TRUE
@@ -145,7 +145,7 @@ define STM32_PWM_USE_ADVANCED TRUE
 define BOARD_PWM_COUNT_DEFAULT 8
 
 #font for the osd
-ROMFS_WILDCARD libraries/AP_OSD/fonts/font*.bin
+#ROMFS_WILDCARD libraries/AP_OSD/fonts/font*.bin
 
 # disable SMBUS and fuel battery monitors to save flash
 define HAL_BATTMON_SMBUS_ENABLE 0
