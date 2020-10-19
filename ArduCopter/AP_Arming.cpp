@@ -57,8 +57,9 @@ bool AP_Arming_Copter::run_pre_arm_checks(bool display_failure)
         & motor_checks(display_failure)
         & pilot_throttle_checks(display_failure)
         & oa_checks(display_failure)
-        & gcs_failsafe_check(display_failure) &
-        AP_Arming::pre_arm_checks(display_failure);
+        & gcs_failsafe_check(display_failure) 
+        & alt_checks(display_failure)
+        & AP_Arming::pre_arm_checks(display_failure);
 }
 
 bool AP_Arming_Copter::barometer_checks(bool display_failure)
@@ -553,6 +554,20 @@ bool AP_Arming_Copter::gcs_failsafe_check(bool display_failure)
     return true;
 }
 
+
+// performs altitude checks.  returns true if passed
+bool AP_Arming_Copter::alt_checks(bool display_failure)
+{
+    // always EKF altitude estimate
+    if (!copter.flightmode->has_manual_throttle() && !copter.ekf_alt_ok()) {
+        check_failed(display_failure, "Need Alt Estimate");
+        return false;
+    }
+
+    return true;
+}
+
+
 // arm_checks - perform final checks before arming
 //  always called just before arming.  Return true if ok to arm
 //  has side-effect that logging is started
@@ -677,8 +692,15 @@ bool AP_Arming_Copter::arm_checks(AP_Arming::Method method)
 bool AP_Arming_Copter::mandatory_checks(bool display_failure)
 {
     // call mandatory gps checks and update notify status because regular gps checks will not run
-    const bool result = mandatory_gps_checks(display_failure);
+    //const bool result = mandatory_gps_checks(display_failure);
+    bool result = mandatory_gps_checks(display_failure);
     AP_Notify::flags.pre_arm_gps_check = result;
+
+    // call mandatory alt check
+    if (!alt_checks(display_failure)) {
+        result = false;
+    }
+
     return result;
 }
 
